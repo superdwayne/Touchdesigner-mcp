@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "TouchDesigner": {
+      "command": "node",
+      "args": ["/Users/dwaynepaisley-marshall/doc/PLAYGROUND/FINAL-FINAL-MCPTD/td-mcp-proxy/index.js"],
+      "env": {
+        "TRANSPORT": "stdio",
+        "TD_SERVER_URL": "http://localhost:8051"
+      }
+    }
+  }
+} 

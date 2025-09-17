@@ -1,0 +1,13 @@
+def start_mcp_server(dat_op):
+    """Starts the MCP HTTP server in a separate thread."""
+    global server_thread, server_instance, server_running, TDF
+    
+    print("DEBUG: Inside start_mcp_server, TDF =", TDF)
+    
+    # This is the problematic part - make sure any try blocks are properly closed
+    # before this if statement
+    if not TDF:
+        print("Cannot start server outside TouchDesigner.")
+        return False
+    
+    # Rest of the function...

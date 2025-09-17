@@ -1,0 +1,14 @@
+{
+  "name": "td-mcp-proxy",
+  "version": "1.0.0",
+  "description": "MCP proxy for TouchDesigner",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.8.4",
+    "express": "^5.1.0",
+    "ws": "^8.14.2"
+  }
+}
