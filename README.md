@@ -1,82 +1,102 @@
 # TouchDesigner MCP Server
 
-This is a Model Context Protocol (MCP) server for TouchDesigner, allowing AI tools like Claude to interact with TouchDesigner projects.
+Control TouchDesigner with AI through natural language. This MCP (Model Context Protocol) server lets Claude create operators, set parameters, execute Python, build node graphs, and more — all inside a running TouchDesigner project.
 
-With this integration, you can create and manipulate components in TouchDesigner, set parameters, execute Python code, and much more - all through natural language interactions with Claude.
+## Quick Start
 
-## Overview
+There are **three things** to set up: the TD server, the Node.js proxy, and your Claude config.
 
-This project provides a bridge between Anthropic's Claude and TouchDesigner by implementing the Model Context Protocol (MCP). It consists of two main components:
+### 1. TouchDesigner Setup (the server)
 
-1. **TouchDesigner Server** (`td_mcp_server_auso_v2.py`): A Python HTTP server running inside TouchDesigner that handles commands and provides an API on port **8053**.
-2. **MCP Proxy Server** (`td-mcp-proxy/index.js`): A Node.js application that translates between MCP JSON-RPC and the TouchDesigner HTTP server.
+#### Step 1: Open TouchDesigner
 
-## Key Feature: Result Feedback
+Open TouchDesigner (2023 or newer) and create or open a project. You should see the default `/project1` container in the network editor.
 
-Unlike simple fire-and-forget approaches, this server returns **actual results** from TouchDesigner back to Claude. When Claude creates a node, it receives the path, type, position, and connections. When it reads a parameter, it gets the real value. This enables Claude to verify its work and make informed follow-up decisions.
+#### Step 2: Create a Text DAT
 
-## Features
+- Double-click the network background (or press **Tab**) to open the operator menu
+- Navigate to **DAT → Text** and place a Text DAT in your network
+- It will be named something like `text1` by default
 
-The TouchDesigner MCP server allows Claude to:
+#### Step 3: Paste the server script
 
-- **Create** operators with smart auto-positioning, auto-wiring, and type resolution (supports natural names like "webcam", "blur", "mic")
-- **Delete** operators (with protection for critical paths)
-- **Get/Set** parameter values (with case-insensitive lookup and expression support)
-- **Set Many** parameters in a single batch operation
-- **List** operators and their children (with type filtering)
-- **List Parameters** of any operator with current values
-- **List Types** available in the current TouchDesigner build
-- **Execute Python** code directly in TouchDesigner
-- **Connect Nodes** in sequence, parallel, or custom patterns
-- **Auto-Connect** two nodes with smart type-based routing
-- **Build Workflows** from presets (audio, interactive installation, 3D render scene)
-- **Layout** networks into clean grids grouped by family
-- **Ensure Inputs** by creating fallback sources for multi-input operators
-- **Show Preview** by opening operator viewers
+- Double-click the Text DAT to open its editor
+- Select all and delete any default content
+- Open `td_mcp_server_auso_v2.py` from this repo in any text editor
+- **Copy the entire file** and paste it into the Text DAT editor
+- Close the editor (click outside or press Escape)
 
-## Prerequisites
+#### Step 4: Start the server
 
-- [TouchDesigner](https://derivative.ca/download) 2023 or newer
-- [Node.js](https://nodejs.org/) 16.x or newer
-- [Anthropic Claude Desktop](https://claude.ai/desktop) or other MCP-compatible client
+Open the **Textport** (menu: **Dialogs → Textport and DATs**) and run:
 
-## Installation
-
-### 1. Clone or download this repository
-
-```bash
-git clone https://github.com/yourusername/touchdesigner-mcp.git
-cd touchdesigner-mcp
+```python
+op('/project1/text1').module.start_mcp_server(op('/project1/text1'))
 ```
 
-### 2. Set up the Node.js MCP proxy
+> Replace `text1` with the actual name of your Text DAT if different.
 
-```bash
-cd td-mcp-proxy
-npm install express axios
+You should see:
+
+```
+Starting MCP server on http://127.0.0.1:8053 (DAT: /project1/text1) ...
+MCP Server started successfully.
 ```
 
-### 3. Configure TouchDesigner
+#### Step 5: Verify it's running
 
-1. Open TouchDesigner
-2. Create a new project
-3. Import `td_mcp_server_auso_v2.py` into a Text DAT in your project
-4. Run the script to start the server (it listens on port **8053** by default)
+Visit http://localhost:8053/api/status in a browser. You should get a JSON response confirming the server is active.
 
-## Configuration
+#### Stopping the server
 
-### For Claude Desktop
+To stop the server later, run in the Textport:
 
-Add the following to your Claude Desktop configuration file:
+```python
+op('/project1/text1').module.stop_mcp_server()
+```
 
-**Stdio Transport (Recommended)**:
+#### Warnings you can ignore
+
+On startup you may see warnings like:
+
+```
+Warning: audioDeviceInCHOP not available in this TouchDesigner version
+Warning: lutTOP not available in this TouchDesigner version
+```
+
+These are harmless — some operator types aren't available in every TD build and are gracefully skipped.
+
+---
+
+### 2. Node.js Proxy Setup
+
+The proxy translates between the MCP protocol (used by Claude) and the HTTP server running inside TouchDesigner.
+
+```bash
+git clone https://github.com/superdwayne/Touchdesigner-mcp.git
+cd Touchdesigner-mcp/td-mcp-proxy
+npm install
+```
+
+You don't need to run the proxy manually if using **stdio** transport (recommended) — Claude Desktop launches it automatically.
+
+---
+
+### 3. Claude Desktop Configuration
+
+Add the following to your Claude Desktop config file:
+
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+#### Stdio Transport (Recommended)
 
 ```json
 {
   "mcpServers": {
     "TouchDesigner": {
       "command": "node",
-      "args": ["/path/to/your/touchdesigner-mcp/td-mcp-proxy/index.js"],
+      "args": ["/path/to/Touchdesigner-mcp/td-mcp-proxy/index.js"],
       "env": {
         "TRANSPORT": "stdio",
         "TD_SERVER_URL": "http://localhost:8053"
@@ -86,16 +106,18 @@ Add the following to your Claude Desktop configuration file:
 }
 ```
 
-**SSE Transport**:
+> Replace `/path/to/` with the actual path to your cloned repo.
 
-First, start the SSE server:
+#### SSE Transport (Alternative)
+
+Start the proxy manually first:
 
 ```bash
-cd /path/to/your/touchdesigner-mcp/td-mcp-proxy
+cd /path/to/Touchdesigner-mcp/td-mcp-proxy
 TRANSPORT=sse node index.js
 ```
 
-Then, configure Claude:
+Then configure Claude:
 
 ```json
 {
@@ -108,11 +130,90 @@ Then, configure Claude:
 }
 ```
 
-Save this configuration to:
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+**Restart Claude Desktop** after saving the config.
 
-### Environment Variables
+---
+
+## Startup Checklist
+
+Every time you want to use this:
+
+1. Open **TouchDesigner** with your project
+2. Run in the Textport:
+   ```python
+   op('/project1/text1').module.start_mcp_server(op('/project1/text1'))
+   ```
+3. Open **Claude Desktop** (it connects to the proxy automatically)
+4. Start talking to Claude about your TouchDesigner project
+
+---
+
+## Features
+
+- **Create** operators with smart auto-positioning, auto-wiring, and natural name resolution (`"webcam"`, `"blur"`, `"mic"`)
+- **Delete** operators (with protection for critical paths)
+- **Get/Set** parameter values (case-insensitive lookup, expression support)
+- **Set Many** parameters in a single batch
+- **List** operators, children, parameters, and available types
+- **Execute Python** code directly inside TouchDesigner
+- **Connect Nodes** in sequence, parallel, or custom patterns
+- **Auto-Connect** two nodes with smart type-based routing
+- **Build Workflows** from presets (audio, interactive installation, 3D render scene)
+- **Layout** networks into clean grids grouped by family
+- **Show Preview** by opening operator viewers
+- **Timeline** control (play, pause, set frame/FPS/range)
+- **CHOP Export** bindings for audio-reactive and data-driven visuals
+- **Custom Parameters** on COMPs for user-facing controls
+- **Node Styling** with colors, comments, and tags
+
+## Example Commands
+
+Once connected, just talk naturally to Claude:
+
+```
+create a circle
+create a text TOP with message "Hello World"
+list all components in /project1
+set /project1/circle1 radius 0.5
+list parameters of /project1/noise1
+create a webcam input and connect it to a blur
+build me an audio experience
+execute python: result = [c.name for c in op('/project1').children]
+```
+
+### Auto-connect
+
+- `auto_connect` (default true) — wires new nodes to the most recent same-family sibling
+- `connect_source` — explicit source operator path
+- `connect_parameter` — input name (`input1`) or parameter name for connection
+- `family` — hint (TOP/CHOP/SOP/DAT/COMP/MAT) to disambiguate ambiguous types
+
+### Workflow Presets
+
+Use `build_workflow` for instant node graphs:
+
+- `audio_experience` — Audio Device In → Out CHOP with viewer
+- `interactive_installation` — Movie File In → Out TOP with viewer
+- `render_scene` — Geometry + SOP, Phong MAT, Camera, Light, Render TOP
+
+### Natural Type Names
+
+Use common names — the server resolves them:
+
+| Family | Aliases |
+|---|---|
+| **TOP** | blur, feedback, switch, null, circle, noise, ramp, level, composite, webcam, movie, image |
+| **CHOP** | mic, lfo, constant, math, filter, lag, timer, keyboard, mouse, osc, midi |
+| **SOP** | sphere, box, grid, torus, transform, merge, boolean, polyextrude |
+| **COMP** | geometry/geo, camera/cam, light, container, base, window |
+| **MAT** | phong, pbr, material |
+| **DAT** | text, table, script, json, webclient |
+
+Add the family suffix if ambiguous (e.g., `"transform SOP"` vs `"transform TOP"`).
+
+---
+
+## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
@@ -120,78 +221,35 @@ Save this configuration to:
 | `TD_SERVER_URL` | `http://localhost:8053` | URL the proxy uses to reach the TD server |
 | `TRANSPORT` | `stdio` | Proxy transport mode: `stdio` or `sse` |
 | `PORT` | `8050` | Port for SSE transport mode |
-| `TD_MCP_PROTECTED_PATHS` | (none) | Comma-separated paths to protect from deletion |
-
-## Usage
-
-Once connected, you can use natural language to interact with TouchDesigner through Claude.
-
-### Example Commands
-
-- `create a circle`
-- `create a text component with message "Hello World"`
-- `list all components`
-- `set /project1/circle1 radius 0.5`
-- `get the resolution of /project1/moviefilein1`
-- `list parameters of /project1/circle1`
-- `execute_python "result = [c.name for c in op('/project1').children]"`
-
-### Auto-connecting creation
-
-The `create` tool supports auto-wiring newly created nodes:
-
-- `auto_connect` (boolean, default true): when true and no explicit source is given, the new node's first input is wired to the most recently created compatible sibling.
-- `connect_source` (string): explicit operator path to wire from.
-- `connect_parameter` (string): either an input name like `input1`/`input2` (wires the corresponding input), or a parameter name on the new node.
-- `family` (string): family hint (TOP/CHOP/SOP/DAT/COMP/MAT) to disambiguate types like "null" or "transform".
-
-### High-level workflows
-
-Use the `build_workflow` tool to turn natural requests into working node graphs:
-
-- Presets: `audio_experience`, `interactive_installation`, `render_scene`
-- Options: `parent` (default `/project1`), `name_prefix`, `open_preview` (default true)
-
-### Type Resolution
-
-You can use common names - the server resolves them to TD operator types:
-- **TOP**: blur, feedback, switch, null, circle, noise, ramp, level, composite, webcam, movie, image
-- **CHOP**: mic, lfo, constant, math, filter, lag, timer, keyboard, mouse, osc, midi
-- **SOP**: sphere, box, grid, torus, transform, merge, boolean, polyextrude
-- **COMP**: geometry/geo, camera/cam, light, container, base, window
-- **MAT**: phong, pbr, material
-- **DAT**: text, table, script, json, webclient
-
-Add the family suffix if ambiguous (e.g., "transform SOP" vs "transform TOP").
+| `TD_MCP_PROTECTED_PATHS` | _(none)_ | Comma-separated operator paths to protect from deletion |
 
 ## Troubleshooting
 
-### Connection Issues
+### Server won't start in TouchDesigner
 
-- Make sure the TouchDesigner server is running and accessible at http://localhost:8053
-- Check if the MCP proxy is running correctly
-- Verify that your Claude Desktop configuration is correct
-- Restart Claude Desktop after making configuration changes
+- Make sure you pasted the **entire** contents of `td_mcp_server_auso_v2.py` into the Text DAT
+- Make sure you're calling `start_mcp_server()` with the DAT reference — just running the script (`op('text1').run()`) only loads the code, it doesn't start the server
+- Check the Textport for error messages
+- Verify port 8053 isn't already in use
 
-### TouchDesigner Issues
+### Claude can't connect
 
-- Ensure the Python script is running in TouchDesigner
-- Check the TextPort in TouchDesigner for any error messages
-- Verify that port 8053 is not being used by another application
+- Confirm the TD server is running: visit http://localhost:8053/api/status in a browser
+- Check your `claude_desktop_config.json` has the correct path to `index.js`
+- Restart Claude Desktop after config changes
+- Check the proxy log at `/tmp/td-mcp-debug.log`
 
-### Log Files
+### Port conflicts
 
-The MCP proxy creates a log file at `/tmp/td-mcp-debug.log` (auto-truncated at 5MB on startup).
+Change the TD server port with the `TD_MCP_PORT` environment variable and update `TD_SERVER_URL` in your Claude config to match.
 
-## Advanced Configuration
+## Architecture
 
-### Changing the TouchDesigner Server Port
+```
+Claude Desktop  ←→  MCP Proxy (Node.js, stdio/SSE)  ←→  TD HTTP Server (Python, port 8053)  ←→  TouchDesigner
+```
 
-Set the `TD_MCP_PORT` environment variable in TouchDesigner, and update `TD_SERVER_URL` in your Claude configuration to match.
-
-### Changing the MCP Proxy Port (SSE mode)
-
-Set the `PORT` environment variable when starting the proxy, and update the `serverUrl` in your Claude configuration.
+The proxy translates MCP JSON-RPC messages into HTTP calls to the Python server running inside TouchDesigner. The Python server uses `run()` to dispatch all TD API calls on the main thread and returns structured results back through the chain.
 
 ## Contributing
 
