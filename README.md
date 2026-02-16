@@ -2,9 +2,19 @@
 
 Control TouchDesigner with AI through natural language. This MCP (Model Context Protocol) server lets Claude create operators, set parameters, execute Python, build node graphs, and more — all inside a running TouchDesigner project.
 
+## One-Click Install
+
+Download the latest `.mcpb` bundle and double-click to install in Claude Desktop:
+
+[**touchdesigner-mcp-1.0.0.mcpb**](https://github.com/superdwayne/Touchdesigner-mcp/releases/latest/download/touchdesigner-mcp-1.0.0.mcpb) (1.3 MB)
+
+> Double-click to install. No terminal commands, no configuration files. You still need to set up the TouchDesigner side — see [TouchDesigner Setup](#1-touchdesigner-setup-the-server) below.
+
+---
+
 ## Quick Start
 
-There are **three things** to set up: the TD server, the Node.js proxy, and your Claude config.
+There are **three things** to set up: the TD server, the Node.js proxy, and your Claude config. If you used the one-click install above, skip to step 1 (TouchDesigner Setup) — the proxy is already configured.
 
 ### 1. TouchDesigner Setup (the server)
 

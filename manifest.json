@@ -1,0 +1,26 @@
+{
+  "dxt_version": "0.2",
+  "name": "touchdesigner-mcp",
+  "version": "1.0.0",
+  "description": "TouchDesigner MCP Server - Control TouchDesigner with AI through natural language. Create operators, set parameters, execute Python, build node graphs and more.",
+  "author": {
+    "name": "Dwayne Paisley-Marshall",
+    "url": "https://github.com/superdwayne"
+  },
+  "license": "MIT",
+  "server": {
+    "type": "node",
+    "entry_point": "td-mcp-proxy/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/td-mcp-proxy/index.js"],
+      "env": {
+        "TRANSPORT": "stdio",
+        "TD_SERVER_URL": "http://localhost:8053"
+      }
+    }
+  },
+  "icon": "icon.png",
+  "homepage": "https://github.com/superdwayne/Touchdesigner-mcp",
+  "keywords": ["touchdesigner", "td", "creative-coding", "visual-programming", "mcp", "desktop"]
+}

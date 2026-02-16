@@ -1,0 +1,23 @@
+.git
+.DS_Store
+__pycache__
+*.py
+*.pyc
+bu.py
+bu 2.py
+Master.py
+requirements.txt
+project1
+~
+test*.py
+example*.py
+simple_connection_test.py
+cursor_td_client.py
+create_visualization.py
+utils.py
+proxy.js
+td-mcp-proxy/test.js
+td-mcp-proxy/.DS_Store
+td-mcp-proxy/venv
+icon.svg
+LICENSE
