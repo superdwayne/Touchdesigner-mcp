@@ -1,5 +1,5 @@
 """
-TouchDesigner MCP Server - AUSO v2.0.0 (Auto-connect + Smart Layout)
+TouchDesigner MCP Server - AUSO v2.1.0 (Auto-connect + Smart Layout + Projection Mapping)
 Provides HTTP endpoints for Claude to interact with TouchDesigner.
 
 Highlights:
@@ -240,6 +240,22 @@ SYNONYM_MAP = {
 
     # Explicit family-suffixed helpful shorthands
     'null sop': 'nullsop', 'nullsop': 'nullsop',
+
+    # Projection mapping / output
+    'stoner': 'stoner', 'stoner top': 'stoner',
+    'corner pin': 'cornerpin', 'cornerpin': 'cornerpin', 'corner': 'cornerpin',
+    'edge blend': 'edgeblend', 'edgeblend': 'edgeblend', 'blend edge': 'edgeblend',
+    'warp': 'warp', 'warp top': 'warp',
+    'screen grab': 'screengrab', 'screengrab': 'screengrab', 'screen capture': 'screengrab',
+    'syphon in': 'syphonspoutin', 'syphonin': 'syphonspoutin', 'spout in': 'syphonspoutin',
+    'syphon out': 'syphonspoutout', 'syphonout': 'syphonspoutout', 'spout out': 'syphonspoutout',
+    'ndi in': 'ndiin', 'ndiin': 'ndiin', 'ndi input': 'ndiin',
+    'ndi out': 'ndiout', 'ndiout': 'ndiout', 'ndi output': 'ndiout',
+    'projector': 'window', 'output window': 'window', 'display': 'window',
+    'camschnappr': 'camschnappr', 'cam schnappr': 'camschnappr', 'camera calibration': 'camschnappr',
+    'kantan': 'kantanmapper', 'kantan mapper': 'kantanmapper',
+    'over': 'over', 'overtop': 'over',
+    'under': 'under', 'undertop': 'under',
 }
 
 # Default family hints for ambiguous base tokens when the caller didn't provide one.
@@ -268,6 +284,14 @@ DEFAULT_FAMILY_HINTS = {
 
     # MAT defaults
     'phong': 'MAT', 'pbr': 'MAT', 'constantmat': 'MAT',
+
+    # Projection mapping TOP defaults
+    'stoner': 'TOP', 'cornerpin': 'TOP', 'edgeblend': 'TOP', 'warp': 'TOP',
+    'screengrab': 'TOP', 'syphonspoutin': 'TOP', 'syphonspoutout': 'TOP',
+    'ndiin': 'TOP', 'ndiout': 'TOP', 'over': 'TOP', 'under': 'TOP',
+
+    # Projection mapping COMP defaults
+    'camschnappr': 'COMP', 'kantanmapper': 'COMP',
 }
 
 # Prefer likely interactive families first for natural names
@@ -1210,8 +1234,10 @@ def _run_layout(params_json, req_id=None):
 
 def _run_build_workflow(params_json, req_id=None):
     """Builds a simple preset workflow and optionally opens a preview.
-    Presets: audio_experience, interactive_installation, render_scene/3d/render3d/scene
-    Args: { preset, parent='/project1', name_prefix='', open_preview=True }
+    Presets: audio_experience, interactive_installation, render_scene/3d/render3d/scene,
+             projection_mapping, multi_projector
+    Args: { preset, parent='/project1', name_prefix='', open_preview=True,
+            num_projectors?: int (for multi_projector, default 2) }
     """
     try:
         p = json.loads(params_json)
@@ -1288,6 +1314,116 @@ def _run_build_workflow(params_json, req_id=None):
             except Exception:
                 pass
             preview = rend
+
+        elif any(k in preset for k in ['projection', 'projmap', 'proj_map']):
+            # Projection mapping: content source -> stoner/null -> out -> window
+            src = parent.create(moviefileinTOP or constantTOP, uniq('content'))
+            nodes_created.append(getattr(src, 'path', ''))
+
+            # Try Stoner TOP, fallback to Null TOP as pass-through
+            stoner_cls = _resolve_type('stoner', 'TOP')
+            if stoner_cls:
+                warp = parent.create(stoner_cls, uniq('surface'))
+            else:
+                warp = parent.create(nullTOP or outTOP, uniq('surface'))
+            nodes_created.append(getattr(warp, 'path', ''))
+            _connect_input(warp, 0, src)
+
+            out = parent.create(outTOP, uniq('out'))
+            nodes_created.append(getattr(out, 'path', ''))
+            _connect_input(out, 0, warp)
+
+            win = parent.create(windowCOMP, uniq('projector'))
+            nodes_created.append(getattr(win, 'path', ''))
+            # Wire the out TOP into the window
+            for pn in ['top', 'TOP', 'operator']:
+                par = getattr(win.par, pn, None)
+                if par is not None:
+                    try:
+                        par.val = out
+                        break
+                    except Exception:
+                        try:
+                            par.val = out.path
+                            break
+                        except Exception:
+                            pass
+            # Set borderless by default
+            for pn in ['borders', 'winborders']:
+                par = getattr(win.par, pn, None)
+                if par is not None:
+                    try:
+                        par.val = False
+                        break
+                    except Exception:
+                        pass
+            preview = out
+
+        elif any(k in preset for k in ['multi_proj', 'multiprojector', 'multi_projector', 'dual_proj']):
+            # Multi-projector with edge blending
+            num_proj = int(p.get('num_projectors', 2))
+            num_proj = max(2, min(num_proj, 8))  # clamp 2-8
+
+            src = parent.create(moviefileinTOP or constantTOP, uniq('content'))
+            nodes_created.append(getattr(src, 'path', ''))
+
+            outputs = []
+            for pi in range(num_proj):
+                # Create a crop/region TOP for each projector's slice
+                crop_cls = _resolve_type('crop', 'TOP') or nullTOP
+                crop = parent.create(crop_cls, uniq(f'region{pi+1}_'))
+                nodes_created.append(getattr(crop, 'path', ''))
+                _connect_input(crop, 0, src)
+
+                # Stoner/null for per-surface warping
+                stoner_cls = _resolve_type('stoner', 'TOP')
+                if stoner_cls:
+                    warp = parent.create(stoner_cls, uniq(f'surface{pi+1}_'))
+                else:
+                    warp = parent.create(nullTOP or outTOP, uniq(f'surface{pi+1}_'))
+                nodes_created.append(getattr(warp, 'path', ''))
+                _connect_input(warp, 0, crop)
+
+                out = parent.create(outTOP, uniq(f'out{pi+1}_'))
+                nodes_created.append(getattr(out, 'path', ''))
+                _connect_input(out, 0, warp)
+
+                win = parent.create(windowCOMP, uniq(f'projector{pi+1}_'))
+                nodes_created.append(getattr(win, 'path', ''))
+                for pn in ['top', 'TOP', 'operator']:
+                    par = getattr(win.par, pn, None)
+                    if par is not None:
+                        try:
+                            par.val = out
+                            break
+                        except Exception:
+                            try:
+                                par.val = out.path
+                                break
+                            except Exception:
+                                pass
+                for pn in ['borders', 'winborders']:
+                    par = getattr(win.par, pn, None)
+                    if par is not None:
+                        try:
+                            par.val = False
+                            break
+                        except Exception:
+                            pass
+                outputs.append(out)
+
+            # Edge blend between adjacent outputs
+            eb_cls = _resolve_type('edgeblend', 'TOP')
+            for i in range(len(outputs) - 1):
+                if eb_cls:
+                    eb = parent.create(eb_cls, uniq(f'blend{i+1}_{i+2}_'))
+                else:
+                    eb = parent.create(compositeTOP or nullTOP, uniq(f'blend{i+1}_{i+2}_'))
+                nodes_created.append(getattr(eb, 'path', ''))
+                _connect_input(eb, 0, outputs[i])
+                _connect_input(eb, 1, outputs[i + 1])
+
+            preview = outputs[0] if outputs else None
 
         else:
             raise ValueError(f"Unknown preset: {preset}")
@@ -1910,6 +2046,428 @@ def _run_node_style(params_json, req_id=None):
             _store_result(req_id, error=str(e))
 
 
+# --- Projection Mapping Tools ---
+
+def _run_list_monitors(params_json, req_id=None):
+    """List connected displays/monitors with resolution, position, and index.
+    Args: {}
+    """
+    try:
+        if not TDF:
+            raise ValueError('list_monitors requires TouchDesigner environment')
+        monitors_list = []
+        try:
+            mons = monitors
+            for i, m in enumerate(mons):
+                monitors_list.append({
+                    'index': i,
+                    'width': int(m.width),
+                    'height': int(m.height),
+                    'left': int(m.left),
+                    'top': int(m.top),
+                    'right': int(m.right),
+                    'bottom': int(m.bottom),
+                    'isPrimary': bool(getattr(m, 'isPrimary', False)),
+                    'scaleFactor': float(getattr(m, 'scaleFactor', 1.0)),
+                    'refreshRate': float(getattr(m, 'refreshRate', 60.0)),
+                    'displayName': str(getattr(m, 'displayName', f'Display {i}')),
+                })
+        except Exception as e:
+            raise ValueError(f'Failed to query monitors: {e}')
+        result = {'monitors': monitors_list, 'count': len(monitors_list)}
+        print(f'MCP Run: list_monitors found {len(monitors_list)} display(s)')
+        if req_id:
+            _store_result(req_id, result)
+    except Exception as e:
+        print('MCP Run Error (_run_list_monitors):', e)
+        if req_id:
+            _store_result(req_id, error=str(e))
+
+
+def _run_configure_output(params_json, req_id=None):
+    """Create or configure a Window COMP for projector/display output.
+    Args: { name?: str, parent?: str, source_top?: str, monitor_index?: int,
+            resolution_w?: int, resolution_h?: int, fullscreen?: bool,
+            borderless?: bool, open?: bool }
+    """
+    try:
+        p = json.loads(params_json)
+        parent_path = p.get('parent', '/project1')
+        name = p.get('name', '')
+        source_top = p.get('source_top')
+        monitor_index = p.get('monitor_index')
+        res_w = p.get('resolution_w')
+        res_h = p.get('resolution_h')
+        fullscreen = p.get('fullscreen', False)
+        borderless = p.get('borderless', True)
+        open_window = p.get('open', False)
+
+        parent_op = op(parent_path)
+        if not parent_op or not getattr(parent_op, 'valid', False):
+            raise ValueError(f'Invalid parent: {parent_path}')
+
+        if not name:
+            name = _unique_child_name(parent_op, 'projector')
+
+        # Check if window already exists
+        existing = op(f'{parent_path}/{name}')
+        if existing and getattr(existing, 'valid', False):
+            win = existing
+        else:
+            win = parent_op.create(windowCOMP, name)
+            if not win or not getattr(win, 'valid', False):
+                raise RuntimeError(f'Failed to create Window COMP')
+
+        changes = {}
+
+        # Set source TOP
+        if source_top:
+            src = op(source_top)
+            if src and getattr(src, 'valid', False):
+                for pn in ['top', 'TOP', 'operator']:
+                    par = getattr(win.par, pn, None)
+                    if par is not None:
+                        try:
+                            par.val = src
+                            changes['source_top'] = source_top
+                            break
+                        except Exception:
+                            try:
+                                par.val = src.path
+                                changes['source_top'] = source_top
+                                break
+                            except Exception:
+                                pass
+
+        # Monitor/display index
+        if monitor_index is not None:
+            for pn in ['monitor', 'winmonitor', 'Monitor']:
+                par = getattr(win.par, pn, None)
+                if par is not None:
+                    try:
+                        par.val = int(monitor_index)
+                        changes['monitor_index'] = int(monitor_index)
+                        break
+                    except Exception:
+                        pass
+
+        # Resolution
+        if res_w is not None:
+            for pn in ['winw', 'sizew', 'resolutionw']:
+                par = getattr(win.par, pn, None)
+                if par is not None:
+                    try:
+                        par.val = int(res_w)
+                        changes['resolution_w'] = int(res_w)
+                        break
+                    except Exception:
+                        pass
+        if res_h is not None:
+            for pn in ['winh', 'sizeh', 'resolutionh']:
+                par = getattr(win.par, pn, None)
+                if par is not None:
+                    try:
+                        par.val = int(res_h)
+                        changes['resolution_h'] = int(res_h)
+                        break
+                    except Exception:
+                        pass
+
+        # Borderless
+        if borderless:
+            for pn in ['borders', 'winborders']:
+                par = getattr(win.par, pn, None)
+                if par is not None:
+                    try:
+                        par.val = False  # borders off = borderless
+                        changes['borderless'] = True
+                        break
+                    except Exception:
+                        pass
+
+        # Fullscreen
+        if fullscreen:
+            for pn in ['winopen', 'open']:
+                par = getattr(win.par, pn, None)
+                if par is not None:
+                    try:
+                        par.val = True
+                        break
+                    except Exception:
+                        pass
+            changes['fullscreen'] = True
+
+        # Open the window
+        if open_window:
+            for pn in ['winopen', 'open']:
+                par = getattr(win.par, pn, None)
+                if par is not None:
+                    try:
+                        par.val = True
+                        changes['opened'] = True
+                        break
+                    except Exception:
+                        pass
+
+        result = {'path': getattr(win, 'path', ''), 'name': name, 'changes': changes}
+        print(f'MCP Run: configure_output {win.path}')
+        if req_id:
+            _store_result(req_id, result)
+    except Exception as e:
+        print('MCP Run Error (_run_configure_output):', e)
+        if req_id:
+            _store_result(req_id, error=str(e))
+
+
+def _run_setup_surface(params_json, req_id=None):
+    """Create and configure a corner pin / Stoner warping surface for projection mapping.
+    Args: { parent?: str, name?: str, source_top?: str, method?: 'cornerpin'|'stoner',
+            corners?: [[x,y],[x,y],[x,y],[x,y]] (normalized 0-1, TL/TR/BR/BL) }
+    """
+    try:
+        p = json.loads(params_json)
+        parent_path = p.get('parent', '/project1')
+        name = p.get('name', '')
+        source_top = p.get('source_top')
+        method = (p.get('method') or 'stoner').lower()
+        corners = p.get('corners')
+
+        parent_op = op(parent_path)
+        if not parent_op or not getattr(parent_op, 'valid', False):
+            raise ValueError(f'Invalid parent: {parent_path}')
+
+        nodes_created = []
+
+        if method == 'stoner':
+            # Try to create a Stoner TOP
+            stoner_cls = _resolve_type('stoner', 'TOP')
+            if not stoner_cls:
+                # Fallback: use corner pin approach via Point TOP
+                method = 'cornerpin'
+            else:
+                if not name:
+                    name = _unique_child_name(parent_op, 'stoner')
+                surface_op = parent_op.create(stoner_cls, name)
+                nodes_created.append(getattr(surface_op, 'path', ''))
+
+                if source_top:
+                    src = op(source_top)
+                    if src and getattr(src, 'valid', False):
+                        _connect_input(surface_op, 0, src)
+
+        if method == 'cornerpin':
+            # Use a Point TOP or similar for corner pinning
+            point_cls = _resolve_type('cornerpin', 'TOP') or _resolve_type('point', 'TOP')
+            if not point_cls:
+                raise ValueError('Neither Stoner TOP nor Corner Pin / Point TOP available in this TD build')
+            if not name:
+                name = _unique_child_name(parent_op, 'cornerpin')
+            surface_op = parent_op.create(point_cls, name)
+            nodes_created.append(getattr(surface_op, 'path', ''))
+
+            if source_top:
+                src = op(source_top)
+                if src and getattr(src, 'valid', False):
+                    _connect_input(surface_op, 0, src)
+
+        # Apply corner points if provided
+        if corners and len(corners) == 4 and surface_op and getattr(surface_op, 'valid', False):
+            corner_params = [
+                ('topleftx', 'toplefty'),     # TL
+                ('toprightx', 'toprighty'),    # TR
+                ('bottomrightx', 'bottomrighty'),  # BR
+                ('bottomleftx', 'bottomlefty'),    # BL
+            ]
+            for i, (px, py) in enumerate(corner_params):
+                if i < len(corners) and len(corners[i]) == 2:
+                    par_x = getattr(surface_op.par, px, None)
+                    par_y = getattr(surface_op.par, py, None)
+                    if par_x is not None:
+                        try: par_x.val = float(corners[i][0])
+                        except Exception: pass
+                    if par_y is not None:
+                        try: par_y.val = float(corners[i][1])
+                        except Exception: pass
+
+        result = {
+            'path': getattr(surface_op, 'path', ''),
+            'method': method,
+            'nodes_created': nodes_created,
+        }
+        print(f'MCP Run: setup_surface ({method}) at {surface_op.path}')
+        if req_id:
+            _store_result(req_id, result)
+    except Exception as e:
+        print('MCP Run Error (_run_setup_surface):', e)
+        if req_id:
+            _store_result(req_id, error=str(e))
+
+
+def _run_get_surface_mapping(params_json, req_id=None):
+    """Read corner pin / warp data from an existing surface node.
+    Args: { path }
+    """
+    try:
+        p = json.loads(params_json)
+        path = p.get('path')
+        if not path:
+            raise ValueError('Missing path')
+        node = op(path) or (op('/' + path) if isinstance(path, str) and not path.startswith('/') else None)
+        if not node or not getattr(node, 'valid', False):
+            raise ValueError(f'Invalid component: {path}')
+
+        mapping = {}
+        # Try to read common corner-pin parameter patterns
+        corner_names = [
+            ('topleftx', 'toplefty', 'top_left'),
+            ('toprightx', 'toprighty', 'top_right'),
+            ('bottomrightx', 'bottomrighty', 'bottom_right'),
+            ('bottomleftx', 'bottomlefty', 'bottom_left'),
+        ]
+        corners_found = {}
+        for px, py, label in corner_names:
+            par_x = getattr(node.par, px, None)
+            par_y = getattr(node.par, py, None)
+            if par_x is not None and par_y is not None:
+                try:
+                    corners_found[label] = [float(par_x.eval()), float(par_y.eval())]
+                except Exception:
+                    corners_found[label] = [str(par_x.val), str(par_y.val)]
+        if corners_found:
+            mapping['corners'] = corners_found
+
+        # Read all parameters for generic warp info
+        all_pars = {}
+        try:
+            for par in node.pars():
+                if par:
+                    pn = par.name.lower()
+                    if any(k in pn for k in ['warp', 'corner', 'point', 'blend', 'offset', 'scale', 'rotate', 'perspective']):
+                        try:
+                            all_pars[par.name] = float(par.eval())
+                        except Exception:
+                            all_pars[par.name] = str(par.val)
+        except Exception:
+            pass
+        if all_pars:
+            mapping['warp_parameters'] = all_pars
+
+        result = {
+            'path': path,
+            'type': str(getattr(node, 'type', '')),
+            'mapping': mapping,
+        }
+        print(f'MCP Run: get_surface_mapping for {path}')
+        if req_id:
+            _store_result(req_id, result)
+    except Exception as e:
+        print('MCP Run Error (_run_get_surface_mapping):', e)
+        if req_id:
+            _store_result(req_id, error=str(e))
+
+
+def _run_configure_edge_blend(params_json, req_id=None):
+    """Set up edge blending between two adjacent projector sources.
+    Args: { parent?: str, name?: str, left_source: str, right_source: str,
+            overlap_pixels?: int, gamma?: float, curve?: str }
+    """
+    try:
+        p = json.loads(params_json)
+        parent_path = p.get('parent', '/project1')
+        name = p.get('name', '')
+        left_source = p.get('left_source')
+        right_source = p.get('right_source')
+        overlap_pixels = p.get('overlap_pixels', 100)
+        gamma = p.get('gamma', 2.2)
+
+        if not left_source or not right_source:
+            raise ValueError('Missing left_source or right_source')
+
+        parent_op = op(parent_path)
+        if not parent_op or not getattr(parent_op, 'valid', False):
+            raise ValueError(f'Invalid parent: {parent_path}')
+
+        left_op = op(left_source)
+        right_op = op(right_source)
+        if not left_op or not getattr(left_op, 'valid', False):
+            raise ValueError(f'Invalid left_source: {left_source}')
+        if not right_op or not getattr(right_op, 'valid', False):
+            raise ValueError(f'Invalid right_source: {right_source}')
+
+        nodes_created = []
+
+        # Try native Edge Blend TOP first
+        eb_cls = _resolve_type('edgeblend', 'TOP')
+        if eb_cls:
+            if not name:
+                name = _unique_child_name(parent_op, 'edgeblend')
+            blend_op = parent_op.create(eb_cls, name)
+            nodes_created.append(getattr(blend_op, 'path', ''))
+            _connect_input(blend_op, 0, left_op)
+            _connect_input(blend_op, 1, right_op)
+
+            # Set overlap/gamma if parameters exist
+            for pn in ['overlap', 'blendwidth', 'width']:
+                par = getattr(blend_op.par, pn, None)
+                if par is not None:
+                    try:
+                        par.val = int(overlap_pixels)
+                        break
+                    except Exception:
+                        pass
+            for pn in ['gamma', 'blendgamma']:
+                par = getattr(blend_op.par, pn, None)
+                if par is not None:
+                    try:
+                        par.val = float(gamma)
+                        break
+                    except Exception:
+                        pass
+        else:
+            # Fallback: build a manual edge blend using Composite + Ramp masks
+            if not name:
+                name = _unique_child_name(parent_op, 'edgeblend')
+
+            # Create left and right ramp masks for soft edges
+            ramp_cls = rampTOP or _resolve_type('ramp', 'TOP')
+            comp_cls = compositeTOP or _resolve_type('composite', 'TOP')
+            over_cls = _resolve_type('over', 'TOP') or comp_cls
+
+            if not ramp_cls or not (comp_cls or over_cls):
+                raise ValueError('Cannot create edge blend: missing Ramp TOP or Composite TOP')
+
+            # Left mask ramp (fades right edge)
+            left_mask_name = _unique_child_name(parent_op, f'{name}_lmask')
+            left_mask = parent_op.create(ramp_cls, left_mask_name)
+            nodes_created.append(getattr(left_mask, 'path', ''))
+            # Right mask ramp (fades left edge)
+            right_mask_name = _unique_child_name(parent_op, f'{name}_rmask')
+            right_mask = parent_op.create(ramp_cls, right_mask_name)
+            nodes_created.append(getattr(right_mask, 'path', ''))
+
+            # Composite/Over to combine
+            blend_cls = over_cls or comp_cls
+            blend_op = parent_op.create(blend_cls, name)
+            nodes_created.append(getattr(blend_op, 'path', ''))
+            _connect_input(blend_op, 0, left_op)
+            _connect_input(blend_op, 1, right_op)
+
+        result = {
+            'path': getattr(blend_op, 'path', ''),
+            'nodes_created': nodes_created,
+            'overlap_pixels': overlap_pixels,
+            'gamma': gamma,
+            'native_edge_blend': bool(eb_cls),
+        }
+        print(f'MCP Run: configure_edge_blend at {blend_op.path}')
+        if req_id:
+            _store_result(req_id, result)
+    except Exception as e:
+        print('MCP Run Error (_run_configure_edge_blend):', e)
+        if req_id:
+            _store_result(req_id, error=str(e))
+
+
 # --- HTTP Server ---
 server_thread = None
 server_instance = None
@@ -1957,7 +2515,8 @@ class TouchDesignerMCPHandler(BaseHTTPRequestHandler):
                         'create','delete','list','get','set','set_many','execute_python',
                         'build_workflow','connect_nodes','show_preview','layout','list_types',
                         'types_json','ensure_inputs','set_dat','list_parameters','auto_connect',
-                        'disconnect','rename','set_text','timeline','chop_export','custom_par','node_style'
+                        'disconnect','rename','set_text','timeline','chop_export','custom_par','node_style',
+                        'list_monitors','configure_output','setup_surface','get_surface_mapping','configure_edge_blend'
                     ]
                 })
             else:
@@ -2053,6 +2612,16 @@ class TouchDesignerMCPHandler(BaseHTTPRequestHandler):
                 method = 'custom_par'
             elif m in ('node style', 'nodestyle', 'node_style', 'set color', 'setcolor', 'node color', 'nodecolor'):
                 method = 'node_style'
+            elif m in ('list monitors', 'listmonitors', 'list_monitors', 'monitors', 'displays', 'list displays'):
+                method = 'list_monitors'
+            elif m in ('configure output', 'configureoutput', 'configure_output', 'setup output', 'setup projector', 'projector output'):
+                method = 'configure_output'
+            elif m in ('setup surface', 'setupsurface', 'setup_surface', 'add surface', 'create surface', 'surface'):
+                method = 'setup_surface'
+            elif m in ('get surface mapping', 'getsurfacemapping', 'get_surface_mapping', 'surface mapping', 'read surface'):
+                method = 'get_surface_mapping'
+            elif m in ('configure edge blend', 'configureedgeblend', 'configure_edge_blend', 'edge blend', 'edgeblend', 'blend'):
+                method = 'configure_edge_blend'
 
             if alias_family and isinstance(params, dict) and 'family' not in params:
                 # inject family hint for create aliases
@@ -2081,6 +2650,11 @@ class TouchDesignerMCPHandler(BaseHTTPRequestHandler):
             elif method == 'chop_export': res = self._tool('_run_chop_export', params, timeout=15.0)
             elif method == 'custom_par': res = self._tool('_run_custom_par', params, timeout=15.0)
             elif method == 'node_style': res = self._tool('_run_node_style', params, timeout=15.0)
+            elif method == 'list_monitors': res = self._tool('_run_list_monitors', params, timeout=10.0)
+            elif method == 'configure_output': res = self._tool('_run_configure_output', params, timeout=15.0)
+            elif method == 'setup_surface': res = self._tool('_run_setup_surface', params, timeout=15.0)
+            elif method == 'get_surface_mapping': res = self._tool('_run_get_surface_mapping', params, timeout=10.0)
+            elif method == 'configure_edge_blend': res = self._tool('_run_configure_edge_blend', params, timeout=15.0)
             elif method == 'set_dat':
                 # Update the server's control module DAT path without requiring a restart
                 newp = None

@@ -56,6 +56,11 @@ const TOOL_TIMEOUTS = {
   chop_export: 15000,
   custom_par: 15000,
   node_style: 15000,
+  list_monitors: 10000,
+  configure_output: 15000,
+  setup_surface: 15000,
+  get_surface_mapping: 10000,
+  configure_edge_blend: 15000,
   build_workflow: 30000,
   execute_python: 30000,
 };
@@ -367,14 +372,15 @@ function handleToolsList(request) {
         },
         {
           name: "build_workflow",
-          description: "Create a complete workflow preset (audio_experience, interactive_installation, render_scene). Returns list of created nodes.",
+          description: "Create a complete workflow preset (audio_experience, interactive_installation, render_scene, projection_mapping, multi_projector). Returns list of created nodes.",
           inputSchema: {
             type: "object",
             properties: {
-              preset: { type: "string", description: "Preset name: audio_experience, interactive_installation, render_scene" },
+              preset: { type: "string", description: "Preset name: audio_experience, interactive_installation, render_scene, projection_mapping, multi_projector" },
               parent: { type: "string", description: "Parent path (default /project1)" },
               name_prefix: { type: "string", description: "Prefix for created node names" },
-              open_preview: { type: "boolean", description: "Open viewer on final node (default true)" }
+              open_preview: { type: "boolean", description: "Open viewer on final node (default true)" },
+              num_projectors: { type: "number", description: "Number of projectors for multi_projector preset (default 2, max 8)" }
             },
             required: ["preset"],
           },
@@ -502,6 +508,76 @@ function handleToolsList(request) {
               tags: { type: "array", items: { type: "string" }, description: "Tags for the node" }
             },
             required: ["path"],
+          },
+        },
+        {
+          name: "list_monitors",
+          description: "List all connected displays/monitors with resolution, position, refresh rate, and index. Essential for projection mapping to identify which display corresponds to which projector.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+            required: [],
+          },
+        },
+        {
+          name: "configure_output",
+          description: "Create or configure a Window COMP for projector/display output. Sets monitor target, resolution, borderless mode, and source TOP. Use list_monitors first to find the right monitor index.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Window COMP name (auto-generated if omitted)" },
+              parent: { type: "string", description: "Parent path (default /project1)" },
+              source_top: { type: "string", description: "Path to the TOP operator to display in this window" },
+              monitor_index: { type: "number", description: "Monitor/display index from list_monitors (0-based)" },
+              resolution_w: { type: "number", description: "Window width in pixels" },
+              resolution_h: { type: "number", description: "Window height in pixels" },
+              fullscreen: { type: "boolean", description: "Open in fullscreen mode (default false)" },
+              borderless: { type: "boolean", description: "Remove window borders (default true)" },
+              open: { type: "boolean", description: "Open the window immediately (default false)" }
+            },
+            required: [],
+          },
+        },
+        {
+          name: "setup_surface",
+          description: "Create a warping surface for projection mapping using Stoner TOP (preferred) or Corner Pin. Allows geometric correction for projecting onto non-flat surfaces.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              parent: { type: "string", description: "Parent path (default /project1)" },
+              name: { type: "string", description: "Surface node name (auto-generated if omitted)" },
+              source_top: { type: "string", description: "Path to the content TOP to warp" },
+              method: { type: "string", enum: ["stoner", "cornerpin"], description: "Warping method: stoner (full mesh) or cornerpin (4-point). Default: stoner" },
+              corners: { type: "array", description: "4 corner points as [[x,y], ...] in normalized 0-1 coords, order: TL, TR, BR, BL", items: { type: "array", items: { type: "number" } } }
+            },
+            required: [],
+          },
+        },
+        {
+          name: "get_surface_mapping",
+          description: "Read back corner pin, warp, and perspective correction data from an existing surface/warping node. Useful for inspecting or adjusting calibration.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "Path to the surface/warp operator" }
+            },
+            required: ["path"],
+          },
+        },
+        {
+          name: "configure_edge_blend",
+          description: "Set up soft-edge blending between two adjacent projector outputs. Creates an Edge Blend TOP (or fallback composite blend) with configurable overlap and gamma.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              parent: { type: "string", description: "Parent path (default /project1)" },
+              name: { type: "string", description: "Edge blend node name (auto-generated if omitted)" },
+              left_source: { type: "string", description: "Path to the left projector output TOP" },
+              right_source: { type: "string", description: "Path to the right projector output TOP" },
+              overlap_pixels: { type: "number", description: "Overlap width in pixels (default 100)" },
+              gamma: { type: "number", description: "Blend gamma curve (default 2.2)" }
+            },
+            required: ["left_source", "right_source"],
           },
         },
       ],
