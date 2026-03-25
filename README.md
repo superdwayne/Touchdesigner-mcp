@@ -24,53 +24,49 @@ This is the most important part. You need to run a small Python server **inside*
 
 Open TouchDesigner (2023 or newer) and create or open a project. You should see the default `/project1` container in the network editor.
 
-#### Step 2: Create a Text DAT
+#### Step 2: Set up the server (choose one method)
 
-- Double-click the network background (or press **Tab**) to open the operator menu
-- Navigate to **DAT → Text** and place a Text DAT in your network
-- It will be named something like `text1` by default — **remember this name**, you'll need it
+**Option A: Auto-Bootstrap (Recommended)** — set it up once and forget about it. The server loads and starts automatically every time you open your project.
 
-#### Step 3: Paste the server script
+1. In TouchDesigner, **Tab** → **DAT** → **Execute** to create an Execute DAT
+2. Open the file **`td_mcp_bootstrap.py`** from this repo and **copy its entire contents**
+3. Double-click the Execute DAT and **paste** it in
+4. Set `REPO_PATH` to where you cloned this repo on your machine, e.g.:
+   - macOS: `'/Users/yourname/Documents/Touchdesigner-mcp'`
+   - Windows: `r'C:\Users\yourname\Documents\Touchdesigner-mcp'`
 
-- Double-click the Text DAT to open its editor
-- Select all and delete any default content
-- Open the file **`td_mcp_server_auso_v2.py`** from this repo in any text editor (VS Code, TextEdit, Notepad, etc.)
-- **Copy the entire file contents** (Cmd+A / Ctrl+A, then Cmd+C / Ctrl+C)
-- Paste it into the Text DAT editor (Cmd+V / Ctrl+V)
-- Close the editor (click outside the editor window or press Escape)
+   > **Tip:** If you save your `.toe` file inside the repo folder, you can leave `REPO_PATH` empty — it auto-detects!
+5. In the Execute DAT parameters (right panel), toggle **Start** → `On` and **Exit** → `On`
+6. **Save your `.toe` file**
 
-#### Step 4: Load the script module
+That's it! Every time you open the project, the server starts automatically. No Textport commands needed.
 
-Open the **Textport** in TouchDesigner (menu bar: **Dialogs → Textport and DATs**).
-
-First, run the script once to load it as a module:
-
+To start it right now without reopening:
 ```python
-op('/project1/text1').run()
+op('/project1/mcp_bootstrap').module.onStart()
 ```
 
-You'll see some output including `Running inside TouchDesigner - MCP server will start.` and possibly some warnings (these are harmless — see below).
+---
 
-#### Step 5: Start the server
+**Option B: Manual Setup** — paste the server code directly and start via the Textport.
 
-Now start the server by running this **exact command** in the Textport:
+1. **Tab** → **DAT** → **Text** to create a Text DAT (e.g., `text1`)
+2. Open **`td_mcp_server_auso_v2.py`** from this repo, copy the entire contents, and paste into the Text DAT
+3. Open the **Textport** (**Dialogs → Textport and DATs**) and run:
 
 ```python
 op('/project1/text1').module.start_mcp_server(op('/project1/text1'))
 ```
 
-> **Important:** Replace `text1` with the actual name of your Text DAT if you named it something different. The name appears on the node in the network editor.
+> Replace `text1` with the actual name of your Text DAT if different.
 
-You should see this output:
-
+You should see:
 ```
 Starting MCP server on http://127.0.0.1:8053 (DAT: /project1/text1) ...
 MCP Server started successfully.
 ```
 
-If you see `MCP Server started successfully.` — you're good to go!
-
-#### Step 6: Verify it's running
+#### Step 3: Verify it's running
 
 Open a browser and visit: http://localhost:8053/api/status
 
@@ -78,15 +74,21 @@ You should get a JSON response confirming the server is active.
 
 #### Stopping the server
 
-When you're done, stop the server by running in the Textport:
+If you used **Option A**, the server stops automatically when you close TouchDesigner.
+
+To stop manually, run in the Textport:
 
 ```python
+# Option A:
+op('/project1/mcp_server').module.stop_mcp_server()
+
+# Option B:
 op('/project1/text1').module.stop_mcp_server()
 ```
 
 #### Restarting after an error
 
-If the server crashes or you get `Address already in use`, **save your project and restart TouchDesigner**, then repeat steps 4 and 5.
+If the server crashes or you get `Address already in use`, **save your project and restart TouchDesigner**. With Option A, it restarts automatically. With Option B, repeat the manual Textport command.
 
 #### Warnings you can safely ignore
 
