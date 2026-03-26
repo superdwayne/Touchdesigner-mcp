@@ -33,7 +33,11 @@ def _find_server_file():
 	"""Find the server .py file, trying REPO_PATH first, then auto-detection."""
 	# 1. If user set REPO_PATH, use it directly
 	if REPO_PATH:
-		candidate = os.path.join(REPO_PATH, SERVER_FILENAME)
+		repo = REPO_PATH
+		# Guard: if user pointed REPO_PATH at the file itself, use its parent dir
+		if os.path.isfile(repo):
+			repo = os.path.dirname(repo)
+		candidate = os.path.join(repo, SERVER_FILENAME)
 		if os.path.isfile(candidate):
 			return candidate
 		print(f'[MCP Bootstrap] WARNING: Not found at REPO_PATH: {candidate}')
