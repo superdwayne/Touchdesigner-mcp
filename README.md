@@ -26,7 +26,29 @@ Open TouchDesigner (2023 or newer) and create or open a project. You should see 
 
 #### Step 2: Set up the server (choose one method)
 
-**Option A: Auto-Bootstrap (Recommended)** — set it up once and forget about it. The server loads and starts automatically every time you open your project.
+**Option A: Plugin Installer (Recommended)** — creates a self-contained COMP you can save as a `.tox` and reuse in any project.
+
+1. Open the **Textport** (**Dialogs → Textport and DATs**) and run:
+   ```python
+   exec(open('/path/to/Touchdesigner-mcp/td_mcp_plugin_installer.py').read())
+   ```
+   Replace `/path/to/Touchdesigner-mcp` with the actual path to your cloned repo.
+
+2. A `td_mcp_server` Base COMP appears in `/project1` with custom parameters:
+   - **Port** — server port (default 8053)
+   - **Auto Start** — starts the server on project open (default ON)
+   - **Start / Stop / Reload** — pulse buttons for manual control
+
+3. **Save as reusable plugin:** Right-click the COMP → **Save Component .tox**
+   Next time, just drag the `.tox` into any project — no installer needed.
+
+4. **Save your `.toe` file** to keep the plugin in this project.
+
+> **Tip:** The plugin auto-detects the server file if your `.toe` is in the repo folder. Otherwise set the **Server File** parameter.
+
+---
+
+**Option B: Auto-Bootstrap** — a lighter approach. The server loads and starts automatically every time you open your project.
 
 1. In TouchDesigner, **Tab** → **DAT** → **Execute** to create an Execute DAT
 2. Open the file **`td_mcp_bootstrap.py`** from this repo and **copy its entire contents**
@@ -48,7 +70,7 @@ op('/project1/mcp_bootstrap').module.onStart()
 
 ---
 
-**Option B: Manual Setup** — paste the server code directly and start via the Textport.
+**Option C: Manual Setup** — paste the server code directly and start via the Textport.
 
 1. **Tab** → **DAT** → **Text** to create a Text DAT (e.g., `text1`)
 2. Open **`td_mcp_server_auso_v2.py`** from this repo, copy the entire contents, and paste into the Text DAT
