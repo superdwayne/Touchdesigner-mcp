@@ -31,168 +31,126 @@ SERVER_FILENAME = 'td_mcp_server_auso_v2.py'
 # =========================================================
 
 
-# --------------- Extension class (embedded in Text DAT) ---------------
-EXTENSION_CODE = '''import os
+# --------------- Execute DAT callbacks (lifecycle management) ---------------
+CALLBACKS_CODE = '''# MCP Server Plugin — lifecycle callbacks
+# This Execute DAT manages start/stop and exposes Start()/Stop()/Reload().
+
+import os
 import time as _time
 
+def onStart():
+    """Called when the TouchDesigner project opens."""
+    comp = parent()
+    if comp.par.Autostart.eval():
+        run("op('{}').module.Start()".format(me.path), delayFrames=5)
 
-class MCPServerExt:
-    """
-    TouchDesigner MCP Server Extension.
+def onCreate():
+    pass
 
-    Controls the lifecycle of the MCP HTTP server that lets
-    Claude interact with TouchDesigner.
+def onExit():
+    """Called when TouchDesigner closes."""
+    Stop()
 
-    Usage (Textport or any script):
-        op('/project1/td_mcp_server').Start()
-        op('/project1/td_mcp_server').Stop()
-        op('/project1/td_mcp_server').Reload()
-    """
 
-    def __init__(self, ownerComp):
-        self.ownerComp = ownerComp
-        # Auto-start after TD finishes initialising
-        if self.ownerComp.par.Autostart.eval():
-            run("args[0].Start()", self, delayFrames=5)
+# ---- Public API: call these from the Textport ----
 
-    # ---- public API (promoted on the COMP) ----
+def Start():
+    """Start the MCP server."""
+    comp = parent()
+    server_dat = comp.op('server_code')
+    if not server_dat or not server_dat.text.strip():
+        _loadCode()
+    if not server_dat.text.strip():
+        comp.par.Status = 'Error: no server code'
+        print('[MCP Plugin] ERROR: No server code. Set Serverfile parameter.')
+        return
 
-    def Start(self):
-        """Start the MCP server (stops any existing instance first)."""
-        server_dat = self.ownerComp.op('server_code')
+    # Stop existing server to free the port
+    _stopQuiet()
+    _time.sleep(0.3)
 
-        # Load from disk if the Text DAT is empty
-        if not server_dat.text.strip():
-            self._loadCode()
-        if not server_dat.text.strip():
-            self.ownerComp.par.Status = 'Error: no server code'
-            print('[MCP Plugin] ERROR: No server code. Set the Serverfile parameter.')
-            return
+    # Apply port from parameter
+    port = comp.par.Port.eval()
+    os.environ['TD_MCP_PORT'] = str(port)
 
-        # Free the port
-        self._stopQuiet()
-        _time.sleep(0.3)
-
-        # Apply port setting
-        port = self.ownerComp.par.Port.eval()
-        os.environ['TD_MCP_PORT'] = str(port)
-
-        try:
-            ok = server_dat.module.start_mcp_server(server_dat)
-            if ok:
-                self.ownerComp.par.Status = 'Running (port {})'.format(port)
-                print('[MCP Plugin] Server started on port {}'.format(port))
-            else:
-                self.ownerComp.par.Status = 'Error: start returned False'
-                print('[MCP Plugin] start_mcp_server returned False — check Textport for details')
-        except Exception as e:
-            self.ownerComp.par.Status = 'Error'
-            print('[MCP Plugin] Start failed: {}'.format(e))
-
-    def Stop(self):
-        """Stop the MCP server."""
-        self._stopQuiet()
-        print('[MCP Plugin] Server stopped')
-
-    def Reload(self):
-        """Reload server code from Serverfile and restart."""
-        self._stopQuiet()
-        _time.sleep(0.5)
-        self._loadCode()
-        self.Start()
-
-    # ---- internals ----
-
-    def _stopQuiet(self):
-        server_dat = self.ownerComp.op('server_code')
-        if server_dat:
-            try:
-                mod = server_dat.module
-                if hasattr(mod, 'stop_mcp_server'):
-                    mod.stop_mcp_server()
-            except Exception:
-                pass
-        self.ownerComp.par.Status = 'Stopped'
-
-    def _loadCode(self):
-        server_file = self.ownerComp.par.Serverfile.eval()
-        # Fall back to auto-detect if path is empty or invalid (e.g. .tox on a different machine)
-        if not server_file or not os.path.isfile(server_file):
-            server_file = self._autoDetect()
-        if server_file and os.path.isfile(server_file):
-            with open(server_file, 'r', encoding='utf-8') as f:
-                code = f.read()
-            self.ownerComp.op('server_code').text = code
-            print('[MCP Plugin] Loaded {} bytes from {}'.format(len(code), server_file))
+    try:
+        ok = server_dat.module.start_mcp_server(server_dat)
+        if ok:
+            comp.par.Status = 'Running (port {})'.format(port)
+            print('[MCP Plugin] Server started on port {}'.format(port))
         else:
-            print('[MCP Plugin] Could not find server file. Embedded code will be used.')
+            comp.par.Status = 'Error: start failed'
+            print('[MCP Plugin] start_mcp_server returned False')
+    except Exception as e:
+        comp.par.Status = 'Error'
+        print('[MCP Plugin] Start failed: {}'.format(e))
 
-    def _autoDetect(self):
-        fn = 'td_mcp_server_auso_v2.py'
-        # Relative to .toe file
+def Stop():
+    """Stop the MCP server."""
+    _stopQuiet()
+    print('[MCP Plugin] Server stopped')
+
+def Reload():
+    """Reload server code from disk and restart."""
+    _stopQuiet()
+    _time.sleep(0.5)
+    _loadCode()
+    Start()
+
+
+# ---- Internal helpers ----
+
+def _stopQuiet():
+    comp = parent()
+    server_dat = comp.op('server_code')
+    if server_dat:
         try:
-            toe = project.folder
-            if toe:
-                for d in [toe, os.path.dirname(toe)]:
-                    c = os.path.join(d, fn)
-                    if os.path.isfile(c):
-                        return c
+            mod = server_dat.module
+            if hasattr(mod, 'stop_mcp_server'):
+                mod.stop_mcp_server()
         except Exception:
             pass
-        # Common locations (macOS, Windows, Linux)
-        home = os.path.expanduser('~')
-        for folder in [
-            'Documents/Touchdesigner-mcp',
-            'Documents/Playground/Touchdesigner-mcp',
-            'Desktop/Touchdesigner-mcp',
-            'Projects/Touchdesigner-mcp',
-            'dev/Touchdesigner-mcp',
-            'src/Touchdesigner-mcp',
-            'Touchdesigner-mcp',
-            'Downloads/Touchdesigner-mcp',
-        ]:
-            c = os.path.join(home, folder, fn)
-            if os.path.isfile(c):
-                return c
-        return None
+    comp.par.Status = 'Stopped'
 
-    def Destroy(self):
-        """Called when the extension is destroyed — clean shutdown."""
-        self._stopQuiet()
-'''
+def _loadCode():
+    comp = parent()
+    server_file = comp.par.Serverfile.eval()
+    if not server_file or not os.path.isfile(server_file):
+        server_file = _autoDetect()
+    if server_file and os.path.isfile(server_file):
+        with open(server_file, 'r', encoding='utf-8') as f:
+            code = f.read()
+        comp.op('server_code').text = code
+        print('[MCP Plugin] Loaded {} bytes from {}'.format(len(code), server_file))
+    else:
+        print('[MCP Plugin] Could not find server file on disk. Using embedded code.')
 
-
-# --------------- Parameter Execute callbacks ---------------
-PAR_EXEC_CODE = '''# Pulse-button routing for the MCP Server plugin.
-# This DAT watches the parent COMP's custom parameters.
-
-def onValueChange(par, prev):
-    return
-
-def onPulse(par):
+def _autoDetect():
+    fn = 'td_mcp_server_auso_v2.py'
     try:
-        ext = parent().ext.MCPServerExt
+        toe = project.folder
+        if toe:
+            for d in [toe, os.path.dirname(toe)]:
+                c = os.path.join(d, fn)
+                if os.path.isfile(c):
+                    return c
     except Exception:
-        return
-    name = par.name
-    if name == 'Start':
-        ext.Start()
-    elif name == 'Stop':
-        ext.Stop()
-    elif name == 'Reload':
-        ext.Reload()
-
-def onExpressionChange(par, val, prev):
-    return
-
-def onExportChange(par, val, prev):
-    return
-
-def onEnableChange(par, val, prev):
-    return
-
-def onModeChange(par, val, prev):
-    return
+        pass
+    home = os.path.expanduser('~')
+    for folder in [
+        'Documents/Touchdesigner-mcp',
+        'Documents/Playground/Touchdesigner-mcp',
+        'Desktop/Touchdesigner-mcp',
+        'Projects/Touchdesigner-mcp',
+        'dev/Touchdesigner-mcp',
+        'src/Touchdesigner-mcp',
+        'Touchdesigner-mcp',
+        'Downloads/Touchdesigner-mcp',
+    ]:
+        c = os.path.join(home, folder, fn)
+        if os.path.isfile(c):
+            return c
+    return None
 '''
 
 
@@ -262,8 +220,15 @@ def install_mcp_plugin():
     existing = parent_op.op(COMP_NAME)
     if existing:
         try:
-            if hasattr(existing, 'ext') and hasattr(existing.ext, 'MCPServerExt'):
-                existing.ext.MCPServerExt.Stop()
+            cb = existing.op('callbacks')
+            if cb and hasattr(cb.module, 'Stop'):
+                cb.module.Stop()
+        except Exception:
+            pass
+        try:
+            sd = existing.op('server_code')
+            if sd and hasattr(sd.module, 'stop_mcp_server'):
+                sd.module.stop_mcp_server()
         except Exception:
             pass
         existing.destroy()
@@ -302,69 +267,27 @@ def install_mcp_plugin():
 
     # ---- 6. Child operators ----
 
-    # Server code Text DAT
+    # Server code Text DAT (the full MCP server, embedded)
     server_dat = comp.create(textDAT, 'server_code')
     server_dat.text = server_code
     server_dat.nodeX = 0
     server_dat.nodeY = 0
     server_dat.viewer = False
 
-    # Extension Text DAT
-    ext_dat = comp.create(textDAT, 'MCPServerExt')
-    ext_dat.text = EXTENSION_CODE
-    ext_dat.nodeX = 400
-    ext_dat.nodeY = 0
-    ext_dat.viewer = False
-
-    # Parameter Execute DAT (routes pulse buttons to extension)
+    # Callbacks Execute DAT (lifecycle: auto-start, shutdown, Start/Stop/Reload)
+    cb_dat = comp.create(executeDAT, 'callbacks')
+    cb_dat.text = CALLBACKS_CODE
+    cb_dat.nodeX = 400
+    cb_dat.nodeY = 0
+    cb_dat.viewer = False
+    # Enable Start and Exit callbacks
     try:
-        par_exec = comp.create(parameterexecuteDAT, 'par_callbacks')
-        par_exec.text = PAR_EXEC_CODE
-        par_exec.nodeX = 800
-        par_exec.nodeY = 0
-        par_exec.viewer = False
-        # Point it at the parent COMP
-        _linked = False
-        for attr in ('op', 'ops', 'operator'):
-            try:
-                setattr(par_exec.par, attr, '..')
-                _linked = True
-                break
-            except Exception:
-                continue
-        if not _linked:
-            print('[MCP Plugin] NOTE: Open par_callbacks and set Operator to ".."')
+        cb_dat.par.start = True
+        cb_dat.par.exit = True
     except Exception:
-        print('[MCP Plugin] NOTE: parameterexecuteDAT unavailable — use Textport for Start/Stop')
+        print('[MCP Plugin] NOTE: Enable "Start" and "Exit" on the callbacks Execute DAT')
 
-    # ---- 7. Wire up the extension ----
-    ext_ok = False
-    # TD extension1 expects an OP reference, not a string name.
-    # Try multiple approaches for compatibility across TD builds.
-    for attempt in [
-        lambda: setattr(comp.par, 'extension1', ext_dat),              # OP reference
-        lambda: setattr(comp.par.extension1, 'val', ext_dat),          # explicit .val
-        lambda: setattr(comp.par.extension1, 'expr', "me.op('MCPServerExt')"),  # expression
-    ]:
-        try:
-            attempt()
-            ext_ok = True
-            break
-        except Exception:
-            continue
-    if not ext_ok:
-        print('[MCP Plugin] NOTE: Drag the MCPServerExt DAT onto Extension 1 in the COMP parameters')
-    # promoteExtension1 doesn't exist in all TD builds — optional
-    try:
-        comp.par.promoteExtension1 = True
-    except Exception:
-        pass
-
-    # ---- 7b. Fallback auto-start if extension didn't initialize ----
-    # Always schedule a fallback that checks if the server is already running
-    run("__s = op('{path}/server_code'); __s.module.start_mcp_server(__s) if not getattr(__s.module, 'server_running', False) else None".format(path=comp.path), delayFrames=10)
-
-    # ---- 8. Visual polish ----
+    # ---- 7. Visual polish ----
     try:
         comp.color = (0.18, 0.45, 0.76)
         comp.comment = 'MCP Server — Claude <> TouchDesigner'
@@ -372,6 +295,10 @@ def install_mcp_plugin():
         pass
     comp.nodeX = 0
     comp.nodeY = -200
+
+    # ---- 8. Start the server now ----
+    cb_path = cb_dat.path
+    run("op('{}').module.Start()".format(cb_path), delayFrames=5)
 
     # ---- Done ----
     print('')
@@ -388,9 +315,9 @@ def install_mcp_plugin():
     print('    Right-click {} > Save Component .tox'.format(comp.path))
     print('')
     print('  MANUAL CONTROL (Textport):')
-    print("    op('{}').Start()".format(comp.path))
-    print("    op('{}').Stop()".format(comp.path))
-    print("    op('{}').Reload()".format(comp.path))
+    print("    op('{}/callbacks').module.Start()".format(comp.path))
+    print("    op('{}/callbacks').module.Stop()".format(comp.path))
+    print("    op('{}/callbacks').module.Reload()".format(comp.path))
     print('')
     return comp
 
