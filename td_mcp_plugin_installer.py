@@ -192,10 +192,30 @@ def _find_server_file():
     return None
 
 
+def _kill_existing_server():
+    """Stop any running MCP server, regardless of where it was started."""
+    import sys, time as _t
+    stopped = False
+    # Scan all loaded modules for one that looks like the MCP server
+    for key, mod in list(sys.modules.items()):
+        if hasattr(mod, 'stop_mcp_server') and getattr(mod, 'server_running', False):
+            try:
+                mod.stop_mcp_server()
+                stopped = True
+            except Exception:
+                pass
+    if stopped:
+        print('[MCP Plugin] Stopped existing MCP server')
+        _t.sleep(0.5)
+
+
 def install_mcp_plugin():
     print('')
     print('[MCP Plugin] Installing TouchDesigner MCP Server plugin ...')
     print('')
+
+    # ---- 0. Kill any running server to free the port ----
+    _kill_existing_server()
 
     # ---- 1. Locate & read server code ----
     server_file = _find_server_file()
