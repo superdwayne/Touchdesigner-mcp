@@ -123,6 +123,16 @@ def _load_and_start():
 	if not server_dat:
 		server_dat = parent_op.create(textDAT, SERVER_DAT_NAME)
 		print(f'[MCP Bootstrap] Created {server_dat.path}')
+	else:
+		# Stop any existing server before reloading to free the port
+		try:
+			mod = server_dat.module
+			if hasattr(mod, 'stop_mcp_server'):
+				mod.stop_mcp_server()
+				print('[MCP Bootstrap] Stopped existing server to free port.')
+				import time; time.sleep(0.5)
+		except Exception:
+			pass
 
 	# Load the code
 	server_dat.text = server_code
