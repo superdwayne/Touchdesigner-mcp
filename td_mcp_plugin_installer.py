@@ -338,11 +338,25 @@ def install_mcp_plugin():
         print('[MCP Plugin] NOTE: parameterexecuteDAT unavailable — use Textport for Start/Stop')
 
     # ---- 7. Wire up the extension ----
+    ext_ok = False
     try:
         comp.par.extension1 = 'MCPServerExt'
-        comp.par.promoteExtension1 = True
+        ext_ok = True
     except Exception as e:
         print('[MCP Plugin] NOTE: Set Extension 1 = "MCPServerExt" manually ({})'.format(e))
+    # promoteExtension1 doesn't exist in all TD builds — optional
+    try:
+        comp.par.promoteExtension1 = True
+    except Exception:
+        pass
+
+    # ---- 7b. Fallback auto-start if extension didn't initialize ----
+    if ext_ok:
+        # Give the extension a few frames to auto-start, then fall back to direct start
+        run("__start = op('{path}/server_code'); __start.module.start_mcp_server(__start) if not getattr(__start.module, 'server_running', False) else None".format(path=comp.path), delayFrames=10)
+    else:
+        # No extension — start directly
+        run("__start = op('{path}/server_code'); __start.module.start_mcp_server(__start)".format(path=comp.path), delayFrames=3)
 
     # ---- 8. Visual polish ----
     try:
