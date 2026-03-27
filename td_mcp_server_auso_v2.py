@@ -2699,7 +2699,7 @@ class TouchDesignerMCPHandler(BaseHTTPRequestHandler):
             "        d = None\n"
             "    if not d or not getattr(d, 'valid', False):\n"
             "        try:\n"
-            "            d = op('/project1/mcp_server') or op('mcp_server') or op('/mcp_server')\n"
+            "            d = op('/project1/td_mcp_server/server_code') or op('/project1/mcp_server') or op('mcp_server') or op('/mcp_server') or op('server_code')\n"
             "        except Exception:\n"
             "            d = None\n"
             "    if d and getattr(d, 'valid', False):\n"
