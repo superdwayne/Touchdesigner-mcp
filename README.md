@@ -28,23 +28,34 @@ Open TouchDesigner (2023 or newer) and create or open a project. You should see 
 
 **Option A: Plugin Installer (Recommended)** — creates a self-contained COMP you can save as a `.tox` and reuse in any project.
 
-1. Open the **Textport** (**Dialogs → Textport and DATs**) and run:
-   ```python
-   exec(open('/path/to/Touchdesigner-mcp/td_mcp_plugin_installer.py').read())
+1. Clone the repo:
+   ```bash
+   git clone https://github.com/superdwayne/Touchdesigner-mcp.git
    ```
-   Replace `/path/to/Touchdesigner-mcp` with the actual path to your cloned repo.
 
-2. A `td_mcp_server` Base COMP appears in `/project1` with custom parameters:
+2. Open the **Textport** (**Dialogs → Textport and DATs**) and run **one** of these:
+
+   If your `.toe` file is saved **inside** the repo folder (easiest):
+   ```python
+   exec(open(project.folder + '/td_mcp_plugin_installer.py').read())
+   ```
+
+   Otherwise, use the full path to where you cloned the repo:
+   ```python
+   exec(open('/Users/yourname/Touchdesigner-mcp/td_mcp_plugin_installer.py').read())
+   ```
+
+3. A `td_mcp_server` Base COMP appears in `/project1` with custom parameters:
    - **Port** — server port (default 8053)
    - **Auto Start** — starts the server on project open (default ON)
    - **Start / Stop / Reload** — pulse buttons for manual control
 
-3. **Save as reusable plugin:** Right-click the COMP → **Save Component .tox**
-   Next time, just drag the `.tox` into any project — no installer needed.
+4. **Save as reusable plugin:** Right-click the COMP → **Save Component .tox**
+   Next time, just drag the `.tox` into any project — no installer needed, no repo required.
 
-4. **Save your `.toe` file** to keep the plugin in this project.
+5. **Save your `.toe` file** to keep the plugin in this project.
 
-> **Tip:** The plugin auto-detects the server file if your `.toe` is in the repo folder. Otherwise set the **Server File** parameter.
+> **Tip:** The server code is **embedded** inside the COMP. The `.tox` is fully self-contained — you can share it with others and it works without the repo.
 
 ---
 
@@ -96,21 +107,32 @@ You should get a JSON response confirming the server is active.
 
 #### Stopping the server
 
-If you used **Option A**, the server stops automatically when you close TouchDesigner.
+The server stops automatically when you close TouchDesigner.
 
 To stop manually, run in the Textport:
 
 ```python
-# Option A:
+# Option A (Plugin):
+op('/project1/td_mcp_server').Stop()
+
+# Option B (Bootstrap):
 op('/project1/mcp_server').module.stop_mcp_server()
 
-# Option B:
+# Option C (Manual):
 op('/project1/text1').module.stop_mcp_server()
 ```
 
 #### Restarting after an error
 
-If the server crashes or you get `Address already in use`, **save your project and restart TouchDesigner**. With Option A, it restarts automatically. With Option B, repeat the manual Textport command.
+If you get `Address already in use`, stop the server first then start it again:
+
+```python
+# Option A (Plugin) — handles it automatically, or:
+op('/project1/td_mcp_server').Stop()
+op('/project1/td_mcp_server').Start()
+```
+
+For Options B/C, **save your project and restart TouchDesigner**.
 
 #### Warnings you can safely ignore
 
@@ -256,13 +278,12 @@ Then use this config instead:
 
 Every time you want to use this:
 
-1. **Open TouchDesigner** with your project (make sure the Text DAT with the server script is there)
-2. **Open the Textport** (Dialogs → Textport and DATs) and run:
+1. **Open TouchDesigner** with your project
+2. **If using the Plugin (Option A):** the server starts automatically — check the Textport for `MCP Server started successfully.`
+3. **If using Manual Setup (Option C):** open the Textport and run:
    ```python
-   op('/project1/text1').run()
    op('/project1/text1').module.start_mcp_server(op('/project1/text1'))
    ```
-3. **Confirm** you see `MCP Server started successfully.` in the Textport
 4. **Open Claude Desktop** — it connects to the proxy automatically
 5. **Start talking** to Claude about your TouchDesigner project
 

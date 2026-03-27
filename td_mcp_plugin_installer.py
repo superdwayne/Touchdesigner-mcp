@@ -5,9 +5,14 @@ Creates a self-contained Base COMP with the MCP server,
 ready to save as a reusable .tox plugin.
 
 Usage (in TouchDesigner Textport):
+
+  If your .toe file is inside the cloned repo folder:
+    exec(open(project.folder + '/td_mcp_plugin_installer.py').read())
+
+  Otherwise, use the full path:
     exec(open('/path/to/Touchdesigner-mcp/td_mcp_plugin_installer.py').read())
 
-If auto-detection fails, set REPO_PATH first:
+  If auto-detection can't find the server file, set REPO_PATH first:
     REPO_PATH = '/path/to/Touchdesigner-mcp'; exec(open(REPO_PATH + '/td_mcp_plugin_installer.py').read())
 """
 
@@ -15,7 +20,9 @@ import os
 
 # ===================== CONFIGURATION =====================
 # Set this if auto-detection fails (point to the repo FOLDER):
-if 'REPO_PATH' not in dir() or not REPO_PATH:
+try:
+    REPO_PATH
+except NameError:
     REPO_PATH = ''
 
 COMP_NAME = 'td_mcp_server'
@@ -109,19 +116,20 @@ class MCPServerExt:
 
     def _loadCode(self):
         server_file = self.ownerComp.par.Serverfile.eval()
-        if not server_file:
+        # Fall back to auto-detect if path is empty or invalid (e.g. .tox on a different machine)
+        if not server_file or not os.path.isfile(server_file):
             server_file = self._autoDetect()
         if server_file and os.path.isfile(server_file):
             with open(server_file, 'r', encoding='utf-8') as f:
                 code = f.read()
             self.ownerComp.op('server_code').text = code
             print('[MCP Plugin] Loaded {} bytes from {}'.format(len(code), server_file))
-        elif server_file:
-            print('[MCP Plugin] File not found: {}'.format(server_file))
+        else:
+            print('[MCP Plugin] Could not find server file. Embedded code will be used.')
 
     def _autoDetect(self):
         fn = 'td_mcp_server_auso_v2.py'
-        # Relative to .toe
+        # Relative to .toe file
         try:
             toe = project.folder
             if toe:
@@ -131,11 +139,18 @@ class MCPServerExt:
                         return c
         except Exception:
             pass
-        # Common locations
+        # Common locations (macOS, Windows, Linux)
         home = os.path.expanduser('~')
-        for folder in ['Documents/Touchdesigner-mcp',
-                        'Documents/Playground/Touchdesigner-mcp',
-                        'Desktop/Touchdesigner-mcp']:
+        for folder in [
+            'Documents/Touchdesigner-mcp',
+            'Documents/Playground/Touchdesigner-mcp',
+            'Desktop/Touchdesigner-mcp',
+            'Projects/Touchdesigner-mcp',
+            'dev/Touchdesigner-mcp',
+            'src/Touchdesigner-mcp',
+            'Touchdesigner-mcp',
+            'Downloads/Touchdesigner-mcp',
+        ]:
             c = os.path.join(home, folder, fn)
             if os.path.isfile(c):
                 return c
@@ -207,6 +222,9 @@ def _find_server_file():
     for folder in ['Documents/Touchdesigner-mcp',
                     'Documents/Playground/Touchdesigner-mcp',
                     'Desktop/Touchdesigner-mcp',
+                    'Projects/Touchdesigner-mcp',
+                    'dev/Touchdesigner-mcp',
+                    'src/Touchdesigner-mcp',
                     'Touchdesigner-mcp',
                     'Downloads/Touchdesigner-mcp']:
         candidate = os.path.join(home, folder, SERVER_FILENAME)
@@ -258,8 +276,8 @@ def install_mcp_plugin():
     page = comp.appendCustomPage('MCP Server')
 
     p = page.appendFile('Serverfile', label='Server File')[0]
-    p.default = server_file
-    p.val = server_file
+    p.default = ''
+    p.val = ''
 
     p = page.appendInt('Port', label='Port')[0]
     p.default = 8053
