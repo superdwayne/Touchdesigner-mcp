@@ -194,16 +194,44 @@ def _find_server_file():
 
 def _kill_existing_server():
     """Stop any running MCP server, regardless of where it was started."""
-    import sys, time as _t
+    import sys, time as _t, threading
     stopped = False
-    # Scan all loaded modules for one that looks like the MCP server
+
+    # Method 1: Find server via module globals (server_instance is more
+    # reliable than server_running, which gets reset on module reload)
     for key, mod in list(sys.modules.items()):
-        if hasattr(mod, 'stop_mcp_server') and getattr(mod, 'server_running', False):
+        inst = getattr(mod, 'server_instance', None)
+        if inst is not None and hasattr(inst, 'shutdown'):
             try:
-                mod.stop_mcp_server()
+                inst.shutdown()
+                inst.server_close()
+                mod.server_instance = None
+                mod.server_running = False
+                mod.server_thread = None
                 stopped = True
             except Exception:
                 pass
+
+    # Method 2: Find orphaned server threads whose module globals were
+    # already wiped.  The thread's target is server.serve_forever, so
+    # target.__self__ is the HTTPServer instance.
+    if not stopped:
+        for t in threading.enumerate():
+            if not t.daemon or not t.is_alive():
+                continue
+            target = getattr(t, '_target', None)
+            if target is None:
+                continue
+            server = getattr(target, '__self__', None)
+            if server and hasattr(server, 'shutdown') and hasattr(server, 'server_address'):
+                try:
+                    server.shutdown()
+                    server.server_close()
+                    t.join(timeout=2)
+                    stopped = True
+                except Exception:
+                    pass
+
     if stopped:
         print('[MCP Plugin] Stopped existing MCP server')
         _t.sleep(0.5)
